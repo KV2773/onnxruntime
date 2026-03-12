@@ -227,8 +227,14 @@ if (NOT onnxruntime_MINIMAL_BUILD AND NOT onnxruntime_EXTENDED_MINIMAL_BUILD
   set_target_properties(onnxruntime_providers_shared PROPERTIES FOLDER "ONNXRuntime")
   set_target_properties(onnxruntime_providers_shared PROPERTIES LINKER_LANGUAGE CXX)
 
-  target_compile_definitions(onnxruntime_providers_shared PRIVATE FILE_NAME=\"onnxruntime_providers_shared.dll\")
+  #ON AIX, to call dlopen on onnxruntime_providers_shared, we need to generate this library as shared object .so file.
+  #Latest cmake behavior is changed and  cmake will remove shared object .so file after generating the shared archive.
+  #To prevent that, making AIX_SHARED_LIBRARY_ARCHIVE as OFF for onnxruntime_providers_shared.
+  if (CMAKE_SYSTEM_NAME MATCHES "AIX")
+    set_target_properties(onnxruntime_providers_shared PROPERTIES AIX_SHARED_LIBRARY_ARCHIVE OFF)
+  endif()
 
+  target_compile_definitions(onnxruntime_providers_shared PRIVATE FILE_NAME=\"onnxruntime_providers_shared.dll\")
 
   # On Apple/Unix we don't directly link with this library as we load it with RTLD_GLOBAL, so this is only set to the actual library on WIN32
   # But, in exchange we need to manually add Boost::mp11 to include dirs for every EP.
@@ -238,7 +244,7 @@ if (NOT onnxruntime_MINIMAL_BUILD AND NOT onnxruntime_EXTENDED_MINIMAL_BUILD
   if(APPLE)
   set_property(TARGET onnxruntime_providers_shared APPEND_STRING PROPERTY LINK_FLAGS "-Xlinker -exported_symbols_list ${ONNXRUNTIME_ROOT}/core/providers/shared/exported_symbols.lst")
   elseif(UNIX)
-    if(NOT ${CMAKE_SYSTEM_NAME} MATCHES "AIX")
+    if(NOT CMAKE_SYSTEM_NAME MATCHES "AIX")
       set_property(TARGET onnxruntime_providers_shared APPEND_STRING PROPERTY LINK_FLAGS "-Xlinker --version-script=${ONNXRUNTIME_ROOT}/core/providers/shared/version_script.lds -Xlinker --gc-sections")
     endif()
   elseif(WIN32)
