@@ -5,6 +5,8 @@ if(UNIX)
   set(SYMBOL_FILE ${CMAKE_CURRENT_BINARY_DIR}/onnxruntime.lds)
   if(APPLE)
     set(OUTPUT_STYLE xcode)
+  elseif(CMAKE_SYSTEM_NAME MATCHES "AIX")
+    set(OUTPUT_STYLE aix)
   else()
     set(OUTPUT_STYLE gcc)
   endif()
@@ -62,7 +64,6 @@ foreach(f ${ONNXRUNTIME_PROVIDER_NAMES})
   list(APPEND SYMBOL_FILES "${ONNXRUNTIME_ROOT}/core/providers/${f}/symbols.txt")
 endforeach()
 
-if(NOT CMAKE_SYSTEM_NAME MATCHES "AIX")
 add_custom_command(OUTPUT ${SYMBOL_FILE} ${CMAKE_CURRENT_BINARY_DIR}/generated_source.c
   COMMAND ${Python_EXECUTABLE} "${REPO_ROOT}/tools/ci_build/gen_def.py"
     --version_file "${ONNXRUNTIME_ROOT}/../VERSION_NUMBER" --src_root "${ONNXRUNTIME_ROOT}"
@@ -72,7 +73,6 @@ add_custom_command(OUTPUT ${SYMBOL_FILE} ${CMAKE_CURRENT_BINARY_DIR}/generated_s
   WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
 
 add_custom_target(onnxruntime_generate_def ALL DEPENDS ${SYMBOL_FILE} ${CMAKE_CURRENT_BINARY_DIR}/generated_source.c)
-endif()
 if(WIN32)
   onnxruntime_add_shared_library(onnxruntime
     ${SYMBOL_FILE}
@@ -117,21 +117,13 @@ elseif(onnxruntime_BUILD_APPLE_FRAMEWORK)
     # Note: The PUBLIC_HEADER and VERSION properties for the 'onnxruntime' target will be set later in this file.
   )
 else()
-  if( CMAKE_SYSTEM_NAME MATCHES "AIX")
-    onnxruntime_add_shared_library(onnxruntime ${ONNXRUNTIME_ROOT}/core/session/onnxruntime_c_api.cc)
-  else()
-    onnxruntime_add_shared_library(onnxruntime ${CMAKE_CURRENT_BINARY_DIR}/generated_source.c )
-  endif()
+  onnxruntime_add_shared_library(onnxruntime ${CMAKE_CURRENT_BINARY_DIR}/generated_source.c )
   if (onnxruntime_USE_CUDA)
     set_property(TARGET onnxruntime APPEND_STRING PROPERTY LINK_FLAGS " -Xlinker -rpath=\\$ORIGIN")
   endif()
 endif()
 
-if( CMAKE_SYSTEM_NAME MATCHES "AIX")
-  add_dependencies(onnxruntime ${onnxruntime_EXTERNAL_DEPENDENCIES})
-else()
-  add_dependencies(onnxruntime onnxruntime_generate_def ${onnxruntime_EXTERNAL_DEPENDENCIES})
-endif()
+add_dependencies(onnxruntime onnxruntime_generate_def ${onnxruntime_EXTERNAL_DEPENDENCIES})
 target_include_directories(onnxruntime PRIVATE ${ONNXRUNTIME_ROOT} PUBLIC "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/onnxruntime>")
 
 
@@ -140,7 +132,10 @@ target_compile_definitions(onnxruntime PRIVATE FILE_NAME=\"onnxruntime.dll\")
 if(UNIX)
   if (APPLE)
     set(ONNXRUNTIME_SO_LINK_FLAG " -Xlinker -dead_strip")
-  elseif(NOT  CMAKE_SYSTEM_NAME MATCHES "AIX")
+  elseif(CMAKE_SYSTEM_NAME MATCHES "AIX")
+    set_property(TARGET onnxruntime PROPERTY AIX_EXPORT_ALL_SYMBOLS OFF)
+    set(ONNXRUNTIME_SO_LINK_FLAG " -Xlinker -bE:${SYMBOL_FILE}")
+  else()
     set(ONNXRUNTIME_SO_LINK_FLAG " -Xlinker --version-script=${SYMBOL_FILE} -Xlinker --no-undefined -Xlinker --gc-sections -z noexecstack")
   endif()
 else()
@@ -251,20 +246,12 @@ target_link_libraries(onnxruntime PRIVATE
 set_property(TARGET onnxruntime APPEND_STRING PROPERTY LINK_FLAGS ${ONNXRUNTIME_SO_LINK_FLAG} ${onnxruntime_DELAYLOAD_FLAGS})
 #See: https://cmake.org/cmake/help/latest/prop_tgt/SOVERSION.html
 if(NOT APPLE AND NOT WIN32)
-  if( CMAKE_SYSTEM_NAME MATCHES "AIX")
-    set_target_properties(onnxruntime PROPERTIES
-      PUBLIC_HEADER "${ONNXRUNTIME_PUBLIC_HEADERS}"
-      VERSION ${ORT_VERSION}
-      SOVERSION 1
-      FOLDER "ONNXRuntime")
-  else()
-    set_target_properties(onnxruntime PROPERTIES
-      PUBLIC_HEADER "${ONNXRUNTIME_PUBLIC_HEADERS}"
-      LINK_DEPENDS ${SYMBOL_FILE}
-      VERSION ${ORT_VERSION}
-      SOVERSION 1
-      FOLDER "ONNXRuntime")
-  endif()
+   set_target_properties(onnxruntime PROPERTIES
+     PUBLIC_HEADER "${ONNXRUNTIME_PUBLIC_HEADERS}"
+     LINK_DEPENDS ${SYMBOL_FILE}
+     VERSION ${ORT_VERSION}
+     SOVERSION 1
+     FOLDER "ONNXRuntime")
 else()
   # Omit the SOVERSION setting in Windows/macOS/iOS/.. build
   set_target_properties(onnxruntime PROPERTIES
